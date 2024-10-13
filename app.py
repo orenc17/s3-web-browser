@@ -2,7 +2,7 @@ import os
 import boto3
 import botocore
 import humanize
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, redirect
 
 app = Flask(__name__)
 app.secret_key = "your_secure_random_key_here"  # noqa: S105
@@ -36,13 +36,14 @@ def buckets() -> str:
     return render_template("index.html", buckets=buckets)
 
 
-def parse_responses(responses, s3_client, bucket_name, search_param):
-    contents = []
+def parse_responses(responses, bucket_name, path, search_param):
+    folders = []
+    files = []
     for response in responses:
         # Add folders to contents
         if "CommonPrefixes" in response:
             for item in response["CommonPrefixes"]:
-                contents.append(  # noqa: PERF401
+                folders.append(  # noqa: PERF401
                     {
                         "name": item["Prefix"],
                         "type": "folder",
@@ -55,25 +56,28 @@ def parse_responses(responses, s3_client, bucket_name, search_param):
         if "Contents" in response:
             for item in response["Contents"]:
                 if not item["Key"].endswith("/"):
-                    url = s3_client.generate_presigned_url(
-                        "get_object",
-                        Params={"Bucket": bucket_name, "Key": item["Key"]},
-                        ExpiresIn=3600,
-                    )  # URL expires in 1 hour
-                    contents.append(
+                    files.append(
                         {
-                            "name": f'{bucket_name}/{item["Key"]}',
+                            "name": item["Key"],
                             "type": "file",
-                            "url": url,
                             "size": humanize.naturalsize(item["Size"]),
                             "date_modified": item["LastModified"],
                         }
                     )
 
+    folders = sorted(folders, key=lambda x: x["name"])
+    files = sorted(files, key=lambda x: x["date_modified"], reverse=True)
     if search_param:
-        contents = list(filter(lambda x: search_param in x['name'], contents))
-    contents = sorted(contents, key=lambda x: x["type"], reverse=True)
-    return contents
+        folders = list(filter(lambda x: search_param in x['name'], folders))
+        files = list(filter(lambda x: search_param in x['name'], files))
+
+    return render_template(
+        "bucket_contents.html",
+        folders=folders,
+        files=files,
+        bucket_name=bucket_name,
+        path=path,
+        search_param=search_param)
 
 
 @app.route("/search//buckets/<bucket_name>", defaults={"path": ""})
@@ -116,14 +120,7 @@ def search_bucket(bucket_name: str, path: str) -> str:
         return render_template("error.html", error=f"An unknown error occurred: {e}")
 
     search_param = request.args['search'] if 'search' in request.args else ''
-    contents = parse_responses(responses, s3_client, bucket_name, search_param)
-    return render_template(
-        "bucket_contents.html",
-        contents=contents,
-        bucket_name=bucket_name,
-        path=path,
-        search_param=search_param,
-    )
+    return parse_responses(responses, bucket_name, path, search_param)
 
 
 @app.route("/buckets/<bucket_name>", defaults={"path": ""})
@@ -157,14 +154,18 @@ def view_bucket(bucket_name: str, path: str) -> str:
         return render_template("error.html", error=f"An unknown error occurred: {e}")
 
     search_param = request.args['search'] if 'search' in request.args else ''
-    contents = parse_responses(responses, s3_client, bucket_name, search_param)
-    return render_template(
-        "bucket_contents.html",
-        contents=contents,
-        bucket_name=bucket_name,
-        path=path,
-        search_param=search_param,
-    )
+    return parse_responses(responses, bucket_name, path, search_param)
+
+
+@app.route("/download/buckets/<bucket_name>/<path:path>")
+def download_file(bucket_name: str, path: str):
+    s3_client = boto3.client("s3", **AWS_KWARGS)
+    url = s3_client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket_name, "Key": path},
+        ExpiresIn=3600,
+    )  # URL expires in 1 hour
+    return redirect(url)
 
 
 if __name__ == "__main__":

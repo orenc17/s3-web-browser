@@ -3,24 +3,26 @@
   <input class="form-control" name="search" placeholder="{{ search_param }}" autocomplete="off" autofocus="autofocus" type="text">
   <input type="submit" value="Submit" />
 </form>
-<h4>Contents of {{ bucket_name }}</h4>
+<h4>Contents of {{ bucket_name }}/{{ path }}</h4>
 <a href="{{ url_for('index') }}" class="btn-small blue">Back to Buckets</a>
 {% if path %}
 <a
-  href="{{ url_for('view_bucket', bucket_name=bucket_name, path=path.rstrip('/').rsplit('/', 1)[0] if '/' in path.rstrip('/') else '') }}"
+  href="{{ url_for('view_bucket', bucket_name=bucket_name, path=path.rstrip('/').rsplit('/', 1)[0] + '/' if '/' in path.rstrip('/') else '') }}"
   class="btn-small">Go Up</a>
 {% endif %}
-<ul class="collection">
-  {% for item in contents %}
-  <li class="collection-item">
-    {% if item.type == "folder" %}
-    <a
-      href="{{ url_for('view_bucket', bucket_name=bucket_name, path=item.name) }}">{{
-      item.name }}</a>
-    {% else %} {{ item.date_modified }} | {{ item.size }} | <a
-      href="{{ item.url }}" target="_blank">{{ item.name }}</a>
-    {% endif %}
-  </li>
+
+<table class="collection">
+  {% for item in folders %}
+  <tr>
+    <td><a href="{{ url_for('view_bucket', bucket_name=bucket_name, path=item.name) }}">{{item.name }}</a></td>
+  </tr>
   {% endfor %}
-</ul>
+  {% for item in files %}
+  <tr>
+    <td><a href="{{ url_for('download_file', bucket_name=bucket_name, path=item.name) }}" target="_blank">{{ item.name }}</a></td>
+    <td>{{ item.date_modified }}</td>
+    <td>{{ item.size }}</td>
+  </tr>
+  {% endfor %}
+</table>
 {% endblock %}
